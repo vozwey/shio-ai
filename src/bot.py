@@ -113,7 +113,8 @@ async def process_and_reply(message: Message):
         )
         await message.answer_guest_query(result=result)
     else:
-        await message.reply(answer)
+        thinking = await message.answer("думаю...")
+        await thinking.edit_text(answer)
 
 
 @dp.guest_message()
