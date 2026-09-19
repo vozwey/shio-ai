@@ -32,11 +32,6 @@ class Settings(BaseSettings):
         4000, ge=1, description="Жёсткий лимит символов финального ответа"
     )
 
-    # 4get: поиск в интернете
-    fourget_base_url: str = Field(
-        "https://4get.joygnu.org", description="Базовый URL поисковика 4get"
-    )
-
     # Тул-коллинг
     tool_max_iterations: int = Field(
         5, ge=1, description="Максимум тул-коллов за запрос (защита от цикла)"
@@ -66,6 +61,5 @@ ANSWER_MAX_CHAR = settings.answer_max_char
 CONTEXT_SIZE = settings.context_size
 SNIPPET_CONTEXT_CHARS = settings.snippet_context_chars
 SEARCH_MAX_RESULTS = settings.search_max_results
-FOURGET_BASE_URL = settings.fourget_base_url
 TOOL_MAX_ITERATIONS = settings.tool_max_iterations
 TOOL_RESULT_MAX_CHAR = settings.tool_result_max_char

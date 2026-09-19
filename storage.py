@@ -40,28 +40,45 @@ class DialogMemory:
 class Memory:
     """Общая память пар «название — значение» (строки) на всех пользователей.
 
-    Загружается из SQLite при старте бота, дальше живёт только в оперативной
-    памяти. db_path игнорируется после загрузки (оставлен для совместимости).
+    Хранится постоянно в SQLite и загружается в RAM при старте бота.
+    Любое добавление/удаление сразу пишется в SQLite, поэтому пары
+    переживают перезапуск бота.
     """
 
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._pairs: list[tuple[str, str]] = []
+        self._init_db()
         self._load()
 
-    def _load(self) -> None:
+    def _init_db(self) -> None:
+        conn = sqlite3.connect(self.db_path)
         try:
-            conn = sqlite3.connect(self.db_path)
-            try:
-                cur = conn.execute("SELECT name, value FROM memory ORDER BY id ASC")
-                self._pairs = [(r[0], r[1]) for r in cur.fetchall()]
-            finally:
-                conn.close()
-        except sqlite3.OperationalError:
-            # таблицы ещё нет — начинаем с пустой памяти
-            self._pairs = []
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS memory ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name TEXT NOT NULL, "
+                "value TEXT NOT NULL)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _load(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cur = conn.execute("SELECT name, value FROM memory ORDER BY id ASC")
+            self._pairs = [(r[0], r[1]) for r in cur.fetchall()]
+        finally:
+            conn.close()
 
     def add(self, name: str, value: str) -> None:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("INSERT INTO memory (name, value) VALUES (?, ?)", (name, value))
+            conn.commit()
+        finally:
+            conn.close()
         self._pairs.append((name, value))
 
     def get_all(self, limit: int = 100) -> list[tuple[str, str]]:
@@ -72,8 +89,13 @@ class Memory:
         return [p for p in self._pairs if q in p[0].lower() or q in p[1].lower()][:limit]
 
     def delete(self, name: str) -> bool:
-        for i, (n, _) in enumerate(self._pairs):
-            if n == name:
-                del self._pairs[i]
-                return True
-        return False
+        if not any(n == name for n, _ in self._pairs):
+            return False
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("DELETE FROM memory WHERE name = ?", (name,))
+            conn.commit()
+        finally:
+            conn.close()
+        self._pairs = [(n, v) for n, v in self._pairs if n != name]
+        return True

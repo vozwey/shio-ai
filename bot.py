@@ -1,29 +1,19 @@
 import json
 import logging
 
-import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import (
     BotCommand,
-    InlineQuery,
     InlineQueryResultArticle,
     InputTextMessageContent,
     Message,
-    ChosenInlineResult,
-    InlineQuery,
-    InlineQueryResultArticle,
-    InputTextMessageContent,
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
 )
 from openai import AsyncOpenAI
 
 from config import (
     ANSWER_MAX_CHAR,
     CONTEXT_SIZE,
-    FOURGET_BASE_URL,
     LOG_LEVEL,
     MEMORY_DB_PATH,
     OPENAI_API_KEY,
@@ -40,6 +30,7 @@ from config import (
 from storage import DialogMemory, Memory
 import base64
 import hashlib
+from ddgs import DDGS
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +62,7 @@ TOOLS = [
         "function": {
             "name": "search_web",
             "description": (
-                "Поиск информации в интернете через поисковик 4get. "
+                "Поиск информации в интернете через DuckDuckGo. "
                 "Используй для проверки фактов, новостей, актуальных данных."
             ),
             "parameters": {
@@ -149,35 +140,22 @@ def _snippet(text: str, query: str, radius: int) -> str | None:
     return f"{prefix}{text[start:end]}{suffix}"
 
 
-async def web_search(query: str, num_results: int = 8) -> str:
-    url = f"{FOURGET_BASE_URL}/api/v1/web"
-    collected: list[dict] = []
-    npt = None
-    async with aiohttp.ClientSession() as session:
-        for _ in range(2):
-            params = {"s": query} if npt is None else {"npt": npt}
-            async with session.get(url, params=params) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-            results = data.get("results", [])
-            collected.extend(results)
-            npt = data.get("npt")
-            if len(collected) >= num_results or not npt:
-                break
-    if not collected:
-        return "Ничего не найдено."
-    lines = [
-        f"- {r.get('title', '')}: {r.get('description', '')} ({r.get('url', '')})"
-        for r in collected[:num_results]
-    ]
-    return "\n".join(lines)
+def web_search(query: str, max_results: int = 3) -> str:
+    try:
+        results = DDGS().text(query, max_results=max_results)
+        context = "\n\n".join(
+            [f"Заголовок: {r['title']}\nТекст: {r['body']}" for r in results]
+        )
+        return context
+    except Exception as e:
+        return f"Ошибка поиска: {e}"
 
 
 async def execute_tool(user_id: int, name: str, args: str) -> str:
     params = json.loads(args)
     try:
         if name == "search_web":
-            return await web_search(params["query"])
+            return web_search(params["query"])
         if name == "add_memory":
             memory.add(params["name"], params["value"])
             return f"Сохранено: {params['name']} = {params['value']}"
