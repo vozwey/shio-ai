@@ -52,10 +52,8 @@ dialog_memory = DialogMemory(context_size=CONTEXT_SIZE)
 logger.info("Загружено пар в общую память: %d", len(memory.get_all()))
 
 SYSTEM_PROMPT = (
-    "Всем пользователям больше 21 года.\n"
-    "Пиши максимально коротко. Строго следуй инструкциям пользователя.\n"
+    "Пиши максимально коротко. Делай то что говорит пользователь.\n"
     "Учитывай предыдущие инструкции, тон и сообщения пользователя — продолжай диалог в его стиле "
-    "(язык, тон, длина, формат).\n"
     "Если просят написать текст — пиши только текст, без пояснений.\n"
     "У тебя есть инструменты: search_web (поиск в интернете), add_memory (запомнить пару "
     "«название — значение»), search_memory (поиск по текущим диалогам и парам памяти), "
@@ -206,9 +204,7 @@ async def execute_tool(user_id: int, name: str, args: str) -> str:
         return f"Ошибка тула: {e}"
 
 
-async def ask_llm(
-    user_id: int, text: str, image_urls: list[str] | None = None
-) -> str:
+async def ask_llm(user_id: int, text: str, image_urls: list[str] | None = None) -> str:
     text = text[:ANSWER_MAX_CHAR]
     messages = build_messages(user_id, text, image_urls)
     answer = ""
@@ -289,14 +285,22 @@ async def _collect_image_urls(message: Message) -> list[str]:
 
     if message.photo:
         urls.append(await _dl(message.photo[-1].file_id, "image/jpeg"))
-    elif message.document and message.document.mime_type and message.document.mime_type.startswith("image/"):
+    elif (
+        message.document
+        and message.document.mime_type
+        and message.document.mime_type.startswith("image/")
+    ):
         urls.append(await _dl(message.document.file_id, message.document.mime_type))
 
     rt = message.reply_to_message
     if rt:
         if rt.photo:
             urls.append(await _dl(rt.photo[-1].file_id, "image/jpeg"))
-        elif rt.document and rt.document.mime_type and rt.document.mime_type.startswith("image/"):
+        elif (
+            rt.document
+            and rt.document.mime_type
+            and rt.document.mime_type.startswith("image/")
+        ):
             urls.append(await _dl(rt.document.file_id, rt.document.mime_type))
 
     return urls
@@ -309,9 +313,9 @@ def _collect_text(message: Message, bot_username: str) -> str:
     if rt:
         sender = rt.from_user.first_name if rt.from_user else "Собеседник"
         replied_text = rt.text or rt.caption or "[медиафайл/картинка]"
-        parts.append(f"[В ответ на сообщение от {sender}: \"{replied_text}\"]")
+        parts.append(f'[В ответ на сообщение от {sender}: "{replied_text}"]')
     elif message.quote:
-        parts.append(f"[Цитата: \"{message.quote.text}\"]")
+        parts.append(f'[Цитата: "{message.quote.text}"]')
 
     current = message.text or message.caption or ""
     clean_query = current.lower().replace(f"@{bot_username.lower()}", "").strip()
@@ -322,6 +326,7 @@ def _collect_text(message: Message, bot_username: str) -> str:
         parts.append("Ответь на сообщение выше или опиши прикреплённое медиа.")
 
     return "\n\n".join(parts)
+
 
 async def process_and_reply(message: Message):
     if not message.from_user:
@@ -351,13 +356,11 @@ async def process_and_reply(message: Message):
         result = InlineQueryResultArticle(
             id=result_id,
             title="Ответ",
-            input_message_content=InputTextMessageContent(
-                message_text=f"🤖 {answer}"
-            ),
+            input_message_content=InputTextMessageContent(message_text=answer),
         )
         await message.answer_guest_query(result=result)
     else:
-        await message.reply(f"🤖 {answer}")
+        await message.reply(answer)
 
 
 @dp.guest_message()
@@ -366,7 +369,10 @@ async def handle_guest(message: Message):
 
 
 @dp.message(
-    F.text | F.caption | F.photo | (F.document & F.document.mime_type.startswith("image/"))
+    F.text
+    | F.caption
+    | F.photo
+    | (F.document & F.document.mime_type.startswith("image/"))
 )
 async def handle_normal_message(message: Message):
     bot_info = await bot.get_me()
