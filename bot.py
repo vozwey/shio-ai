@@ -1,3 +1,6 @@
+import base64
+from datetime import datetime
+import hashlib
 import json
 import logging
 
@@ -9,7 +12,9 @@ from aiogram.types import (
     InputTextMessageContent,
     Message,
 )
+from ddgs import DDGS
 from openai import AsyncOpenAI
+import trafilatura
 
 from config import (
     ANSWER_MAX_CHAR,
@@ -28,9 +33,6 @@ from config import (
     TOOL_RESULT_MAX_CHAR,
 )
 from storage import DialogMemory, Memory
-import base64
-import hashlib
-from ddgs import DDGS
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +44,24 @@ dialog_memory = DialogMemory(context_size=CONTEXT_SIZE)
 
 logger.info("Загружено пар в общую память: %d", len(memory.get_all()))
 
-SYSTEM_PROMPT = (
-    "Пиши максимально коротко. Делай то что говорит пользователь.\n"
-    "Учитывай предыдущие инструкции, тон и сообщения пользователя — продолжай диалог в его стиле "
-    "Если просят написать текст — пиши только текст, без пояснений.\n"
-    "У тебя есть инструменты: search_web (поиск в интернете), add_memory (запомнить пару "
-    "«название — значение»), search_memory (поиск по текущим диалогам и парам памяти), "
-    "list_memory (показать все сохранённые пары). Используй их эффективно и по делу: немного, "
-    "но применяй для проверки фактов и информации, в которой не уверен. "
-    "Все важные факты о пользователе (имя, предпочтения, данные, воспоминания) записывай через "
-    "add_memory как пары «название — значение» — память общая на всех пользователей, "
-    "так ты будешь помнить их в будущем. "
-    "Результаты инструментов в ответ пользователю не выводи — используй их только для себя."
-)
+
+def get_system_prompt() -> str:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
+    return (
+        f"Текущая дата и время системы: {now}.\n"
+        "Пиши максимально коротко. Делай то что говорит пользователь.\n"
+        "Учитывай предыдущие инструкции, тон и сообщения пользователя — продолжай диалог в его стиле "
+        "Если просят написать текст — пиши только текст, без пояснений.\n"
+        "У тебя есть инструменты: search_web (поиск ссылок в интернете), fetch_url (получение текста страницы по URL), "
+        "add_memory (запомнить пару «название — значение»), search_memory (поиск по текущим диалогам и парам памяти), "
+        "list_memory (показать все сохранённые пары). Используй их эффективно и по делу. "
+        "Для поиска в интернете сначала используй search_web с краткими ключевыми словами, а затем читай подходящие страницы через fetch_url. "
+        "Все важные факты о пользователе (имя, предпочтения, данные, воспоминания) записывай через "
+        "add_memory как пары «название — значение» — память общая на всех пользователей, "
+        "так ты будешь помнить их в будущем. "
+        "Результаты инструментов в ответ пользователю не выводи — используй их только для себя."
+    )
+
 
 TOOLS = [
     {
@@ -62,15 +69,38 @@ TOOLS = [
         "function": {
             "name": "search_web",
             "description": (
-                "Поиск информации в интернете через DuckDuckGo. "
-                "Используй для проверки фактов, новостей, актуальных данных."
+                "Поиск ссылок в интернете. Возвращает список заголовков и прямых URL. "
+                "Используй короткие ключевые слова для запроса."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Поисковый запрос"}
+                    "query": {
+                        "type": "string",
+                        "description": "Ключевые слова для поиска",
+                    }
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": (
+                "Загружает страницу по URL и читает её текстовое содержимое. "
+                "Используй после search_web, выбрав наиболее подходящую ссылку."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Прямая ссылка (URL) на страницу",
+                    }
+                },
+                "required": ["url"],
             },
         },
     },
@@ -140,22 +170,60 @@ def _snippet(text: str, query: str, radius: int) -> str | None:
     return f"{prefix}{text[start:end]}{suffix}"
 
 
-def web_search(query: str, max_results: int = 3) -> str:
+def search_web(query: str, max_results: int = 5) -> str:
     try:
-        results = DDGS().text(query, max_results=max_results)
-        context = "\n\n".join(
-            [f"Заголовок: {r['title']}\nТекст: {r['body']}" for r in results]
+        results = DDGS().text(
+            query, region="ru-ru", max_results=max_results, backend="auto"
         )
-        return context
+        if not results:
+            results = DDGS().text(
+                query,
+                region="ru-ru",
+                max_results=max_results,
+                backend="duckduckgo",
+            )
+        if not results:
+            return "По запросу ничего не найдено."
+
+        output = []
+        for i, r in enumerate(results, 1):
+            title = r.get("title", "Без названия")
+            url = r.get("href") or r.get("link") or r.get("url")
+            if url:
+                output.append(f"{i}. {title}\nURL: {url}")
+
+        return "\n\n".join(output) if output else "По запросу ничего не найдено."
     except Exception as e:
         return f"Ошибка поиска: {e}"
+
+
+def fetch_url(url: str, max_chars: int = 4000) -> str:
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            return "Не удалось загрузить страницу."
+
+        text = trafilatura.extract(
+            downloaded, include_links=False, include_images=False
+        )
+        if not text or not text.strip():
+            return "Не удалось извлечь полезный текст со страницы."
+
+        if len(text) > max_chars:
+            text = text[:max_chars] + "...[обрезано]"
+
+        return text
+    except Exception as e:
+        return f"Ошибка при загрузке URL: {e}"
 
 
 async def execute_tool(user_id: int, name: str, args: str) -> str:
     params = json.loads(args)
     try:
         if name == "search_web":
-            return web_search(params["query"])
+            return search_web(params["query"])
+        if name == "fetch_url":
+            return fetch_url(params["url"])
         if name == "add_memory":
             memory.add(params["name"], params["value"])
             return f"Сохранено: {params['name']} = {params['value']}"
@@ -228,7 +296,7 @@ async def ask_llm(user_id: int, text: str, image_urls: list[str] | None = None) 
 def build_messages(
     user_id: int, new_text: str, image_urls: list[str] | None = None
 ) -> list[dict]:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": get_system_prompt()}]
     for msg in dialog_memory.get_context(user_id):
         messages.append({"role": msg.role, "content": msg.content})
     if image_urls:
