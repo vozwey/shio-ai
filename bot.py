@@ -38,7 +38,7 @@ from config import (
     TOOL_RESULT_MAX_CHAR,
 )
 from storage import DialogMemory, Memory
-import hashlib
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -205,9 +205,11 @@ async def execute_tool(user_id: int, name: str, args: str) -> str:
         return f"Ошибка тула: {e}"
 
 
-async def ask_llm(user_id: int, text: str) -> str:
+async def ask_llm(
+    user_id: int, text: str, image_urls: list[str] | None = None
+) -> str:
     text = text[:ANSWER_MAX_CHAR]
-    messages = build_messages(user_id, text)
+    messages = build_messages(user_id, text, image_urls)
     answer = ""
 
     for _ in range(TOOL_MAX_ITERATIONS):
@@ -248,11 +250,20 @@ async def ask_llm(user_id: int, text: str) -> str:
     return answer
 
 
-def build_messages(user_id: int, new_text: str) -> list[dict]:
+def build_messages(
+    user_id: int, new_text: str, image_urls: list[str] | None = None
+) -> list[dict]:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in dialog_memory.get_context(user_id):
         messages.append({"role": msg.role, "content": msg.content})
-    messages.append({"role": "user", "content": new_text})
+    if image_urls:
+        content: list[dict] = [{"type": "text", "text": new_text}]
+        content.extend(
+            {"type": "image_url", "image_url": {"url": u}} for u in image_urls
+        )
+        messages.append({"role": "user", "content": content})
+    else:
+        messages.append({"role": "user", "content": new_text})
     return messages
 
 
@@ -266,46 +277,73 @@ async def cmd_start(message: Message):
     )
 
 
-async def _download_base64(file_id: str) -> str:
-    file = await bot.get_file(file_id)
-    content = await bot.download_file(file.file_path)
-    return base64.b64encode(content.read()).decode()
+async def _collect_image_urls(message: Message) -> list[str]:
+    urls: list[str] = []
+
+    async def _dl(file_id: str, mime: str) -> str:
+        file = await bot.get_file(file_id)
+        content = await bot.download_file(file.file_path)
+        b64 = base64.b64encode(content.read()).decode()
+        return f"data:{mime};base64,{b64}"
+
+    if message.photo:
+        urls.append(await _dl(message.photo[-1].file_id, "image/jpeg"))
+    if message.document and message.document.mime_type.startswith("image/"):
+        urls.append(
+            await _dl(message.document.file_id, message.document.mime_type)
+        )
+
+    replied = message.reply_to_message
+    if replied:
+        if replied.photo:
+            urls.append(await _dl(replied.photo[-1].file_id, "image/jpeg"))
+        if (
+            replied.document
+            and replied.document.mime_type.startswith("image/")
+        ):
+            urls.append(
+                await _dl(replied.document.file_id, replied.document.mime_type)
+            )
+
+    if message.quote and message.quote.photos:
+        for p in message.quote.photos:
+            urls.append(await _dl(p.file_id, "image/jpeg"))
+
+    return urls
 
 
-@dp.message(F.text)
-async def handle_text(message: Message):
+def _collect_text(message: Message) -> str:
+    parts: list[str] = []
+
+    quoted = None
+    if message.quote:
+        quoted = message.quote.text
+    elif message.reply_to_message:
+        rt = message.reply_to_message
+        if rt.text:
+            quoted = rt.text
+        elif rt.caption:
+            quoted = rt.caption
+
+    if quoted:
+        parts.append(f"[цитата] {quoted}")
+    if message.caption:
+        parts.append(message.caption)
+    elif message.text:
+        parts.append(message.text)
+
+    return "\n".join(parts)
+
+@dp.message(
+    F.text | F.caption | F.photo | (F.document & F.document.mime_type.startswith("image/"))
+)
+async def handle_message(message: Message):
     user_id = message.from_user.id
     try:
-        answer = await ask_llm(user_id, message.text)
+        image_urls = await _collect_image_urls(message)
+        answer = await ask_llm(user_id, _collect_text(message), image_urls or None)
     except Exception as e:
         logger.exception("Ошибка генерации в ЛС")
-        answer = f"Произошла ошибка: {e}"
-    await message.answer(answer)
-
-
-@dp.message(F.photo)
-async def handle_photo(message: Message):
-    user_id = message.from_user.id
-    photo = message.photo[-1]
-    try:
-        image_urls = [f"data:image/jpeg;base64,{await _download_base64(photo.file_id)}"]
-        answer = await ask_llm(user_id, message.caption or "", image_urls)
-    except Exception as e:
-        logger.exception("Ошибка генерации по фото")
-        answer = f"Произошла ошибка: {e}"
-    await message.answer(answer)
-
-
-@dp.message(F.document & F.document.mime_type.startswith("image/"))
-async def handle_image_document(message: Message):
-    user_id = message.from_user.id
-    try:
-        mime = message.document.mime_type
-        ext = mime.split("/")[1]
-        image_urls = [f"data:{mime};base64,{await _download_base64(message.document.file_id)}"]
-        answer = await ask_llm(user_id, message.caption or "", image_urls)
-    except Exception as e:
-        logger.exception("Ошибка генерации по изображению-файлу")
         answer = f"Произошла ошибка: {e}"
     await message.answer(answer)
 
