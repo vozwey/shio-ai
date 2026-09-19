@@ -17,7 +17,7 @@ logger.info("Загружено пар в общую память: %d", len(memo
 
 async def main() -> None:
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, allowed_updates=["message", "guest_message"])
 
 
 if __name__ == "__main__":

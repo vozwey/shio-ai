@@ -39,6 +39,7 @@ from config import (
 )
 from storage import DialogMemory, Memory
 import base64
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -288,143 +289,99 @@ async def _collect_image_urls(message: Message) -> list[str]:
 
     if message.photo:
         urls.append(await _dl(message.photo[-1].file_id, "image/jpeg"))
-    if message.document and message.document.mime_type.startswith("image/"):
-        urls.append(
-            await _dl(message.document.file_id, message.document.mime_type)
-        )
+    elif message.document and message.document.mime_type and message.document.mime_type.startswith("image/"):
+        urls.append(await _dl(message.document.file_id, message.document.mime_type))
 
-    replied = message.reply_to_message
-    if replied:
-        if replied.photo:
-            urls.append(await _dl(replied.photo[-1].file_id, "image/jpeg"))
-        if (
-            replied.document
-            and replied.document.mime_type.startswith("image/")
-        ):
-            urls.append(
-                await _dl(replied.document.file_id, replied.document.mime_type)
-            )
-
-    if message.quote and message.quote.photos:
-        for p in message.quote.photos:
-            urls.append(await _dl(p.file_id, "image/jpeg"))
+    rt = message.reply_to_message
+    if rt:
+        if rt.photo:
+            urls.append(await _dl(rt.photo[-1].file_id, "image/jpeg"))
+        elif rt.document and rt.document.mime_type and rt.document.mime_type.startswith("image/"):
+            urls.append(await _dl(rt.document.file_id, rt.document.mime_type))
 
     return urls
 
 
-def _collect_text(message: Message) -> str:
+def _collect_text(message: Message, bot_username: str) -> str:
     parts: list[str] = []
 
-    quoted = None
-    if message.quote:
-        quoted = message.quote.text
-    elif message.reply_to_message:
-        rt = message.reply_to_message
-        if rt.text:
-            quoted = rt.text
-        elif rt.caption:
-            quoted = rt.caption
+    rt = message.reply_to_message
+    if rt:
+        sender = rt.from_user.first_name if rt.from_user else "Собеседник"
+        replied_text = rt.text or rt.caption or "[медиафайл/картинка]"
+        parts.append(f"[В ответ на сообщение от {sender}: \"{replied_text}\"]")
+    elif message.quote:
+        parts.append(f"[Цитата: \"{message.quote.text}\"]")
 
-    if quoted:
-        parts.append(f"[цитата] {quoted}")
-    if message.caption:
-        parts.append(message.caption)
-    elif message.text:
-        parts.append(message.text)
+    current = message.text or message.caption or ""
+    clean_query = current.lower().replace(f"@{bot_username.lower()}", "").strip()
 
-    return "\n".join(parts)
+    if clean_query:
+        parts.append(clean_query)
+    elif rt:
+        parts.append("Ответь на сообщение выше или опиши прикреплённое медиа.")
+
+    return "\n\n".join(parts)
+
+async def process_and_reply(message: Message):
+    if not message.from_user:
+        return
+
+    bot_info = await bot.get_me()
+    bot_username = bot_info.username
+
+    prompt_text = _collect_text(message, bot_username)
+    if not prompt_text:
+        return
+
+    try:
+        image_urls = await _collect_image_urls(message)
+    except Exception as e:
+        logger.warning("Не удалось загрузить изображение: %s", e)
+        image_urls = []
+
+    try:
+        answer = await ask_llm(message.from_user.id, prompt_text, image_urls or None)
+    except Exception as e:
+        logger.exception("Ошибка ask_llm")
+        answer = f"Произошла ошибка: {e}"
+
+    if getattr(message, "guest_query_id", None):
+        result_id = hashlib.md5(f"g_{message.guest_query_id}".encode()).hexdigest()
+        result = InlineQueryResultArticle(
+            id=result_id,
+            title="Ответ",
+            input_message_content=InputTextMessageContent(
+                message_text=f"🤖 {answer}"
+            ),
+        )
+        await message.answer_guest_query(result=result)
+    else:
+        await message.reply(f"🤖 {answer}")
+
+
+@dp.guest_message()
+async def handle_guest(message: Message):
+    await process_and_reply(message)
+
 
 @dp.message(
     F.text | F.caption | F.photo | (F.document & F.document.mime_type.startswith("image/"))
 )
-async def handle_message(message: Message):
-    user_id = message.from_user.id
-    try:
-        image_urls = await _collect_image_urls(message)
-        answer = await ask_llm(user_id, _collect_text(message), image_urls or None)
-    except Exception as e:
-        logger.exception("Ошибка генерации в ЛС")
-        answer = f"Произошла ошибка: {e}"
-    await message.answer(answer)
-
-
-@dp.inline_query()
-async def handle_inline(query: InlineQuery):
-    if query.from_user is None:
-        return
-
-    user_text = query.query.strip()
-
-    if not user_text:
-        placeholder = InlineQueryResultArticle(
-            id="hint",
-            title="💡 Введи вопрос...",
-            description="Напиши запрос после юзернейма бота",
-            input_message_content=InputTextMessageContent(
-                message_text="Напиши запрос после @юзернейма, чтобы спросить момащку Шио."
-            ),
-        )
-        await query.answer(results=[placeholder], cache_time=1, is_personal=True)
-        return
-
-    loading_kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="⏳ Генерирую...", callback_data="loading")]
-        ]
-    )
-
-    result = InlineQueryResultArticle(
-        id="ask_shio",
-        title="🔮 Спросить момащу Шио",
-        description=f"Отправить вопрос: «{user_text}»",
-        input_message_content=InputTextMessageContent(
-            message_text=f"❓ *Вопрос:* {user_text}\n\n⏳ *мамаща Шио думает...*",
-            parse_mode="Markdown",
-        ),
-        reply_markup=loading_kb,
-    )
-
-    await query.answer(results=[result], cache_time=0, is_personal=True)
-
-
-@dp.chosen_inline_result()
-async def handle_chosen_inline(chosen: ChosenInlineResult):
-    if not chosen.inline_message_id:
-        return
-
-    user_id = chosen.from_user.id
-    user_text = chosen.query.strip()
-
-    if not user_text:
-        return
-
-    try:
-        answer = await ask_llm(user_id, user_text)
-    except Exception as e:
-        logger.exception("Ошибка генерации в inline-режиме")
-        answer = f"Произошла ошибка: {e}"
-
+async def handle_normal_message(message: Message):
     bot_info = await bot.get_me()
-    final_kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="😊подрочить мамаше шио", switch_inline_query_current_chat=""
-                ),
-            ]
-        ]
+    bot_tag = f"@{bot_info.username.lower()}"
+
+    if message.chat.type == "private":
+        await process_and_reply(message)
+        return
+
+    raw_text = (message.text or message.caption or "").lower()
+    is_replied_to_bot = (
+        message.reply_to_message
+        and message.reply_to_message.from_user
+        and message.reply_to_message.from_user.id == bot_info.id
     )
 
-    try:
-        await bot.edit_message_text(
-            inline_message_id=chosen.inline_message_id,
-            text=f"❓ *Вопрос:* {user_text}\n🤖 *Ответ мамащки Шио:*\n{answer}",
-            parse_mode="Markdown",
-            reply_markup=final_kb,
-        )
-    except Exception:
-        await bot.edit_message_text(
-            inline_message_id=chosen.inline_message_id,
-            text=f"❓ Вопрос: {user_text}\n🤖 Ответ мамащки Шио:\n{answer}",
-            reply_markup=final_kb,
-        )
+    if bot_tag in raw_text or is_replied_to_bot:
+        await process_and_reply(message)
