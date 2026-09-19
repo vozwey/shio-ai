@@ -3,13 +3,16 @@ import logging
 
 from aiogram import Bot, Dispatcher
 
-from bot import bot, dp
+from bot import bot, dp, memory
 from config import LOG_LEVEL
 
 logging.basicConfig(
     level=LOG_LEVEL,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+
+logger = logging.getLogger(__name__)
+logger.info("Загружено пар в общую память: %d", len(memory.get_all()))
 
 
 async def main() -> None:

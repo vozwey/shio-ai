@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, patch
 from aiogram import Bot
 from aiogram.types import Update, User, Message, Chat
 from bot import dp, TOOLS
-from storage import Memory, Facts
+from storage import DialogMemory, Memory
 
 TOOL_CALL_ID = "call_abc123"
 
@@ -121,14 +121,13 @@ async def test_tool_loop():
     assert "Ничего не найдено." not in captured_methods[1][1].text
 
     # в памяти только user + assistant
-    memory = Memory("test_tools.db")
-    ctx = memory.get_context(111)
+    from bot import dialog_memory as bot_dialog_memory
+    ctx = bot_dialog_memory.get_context(111)
     assert len(ctx) == 2
     assert ctx[0].role == "user"
     assert ctx[1].role == "assistant"
     assert ctx[1].content == "Вот что я нашёл."
 
-    os.remove("test_tools.db")
     print("TOOL_LOOP_TEST_PASSED")
 
 
@@ -138,7 +137,7 @@ async def test_add_memory_tool():
     import bot as bot_module
 
     bot_module.memory = Memory("test_tools_memory.db")
-    bot_module.facts = Facts("test_tools_memory.db")
+    bot_module.dialog_memory = DialogMemory()
 
     user = User(id=222, is_bot=False, first_name="Test")
     chat = Chat(id=222, type="private", first_name="Test")
@@ -172,7 +171,7 @@ async def test_add_memory_tool():
                                     id=TOOL_CALL_ID,
                                     function=FunctionCall(
                                         name="add_memory",
-                                        arguments='{"content": "пользователя зовут Алекс"}',
+                                        arguments='{"name": "имя", "value": "пользователя зовут Алекс"}',
                                     ),
                                 )
                             ],
@@ -187,19 +186,51 @@ async def test_add_memory_tool():
             mock_client.chat.completions.create = AsyncMock(side_effect=llm_side_effect)
             await dp.feed_update(bot=bot, update=update)
 
-    memory = Memory("test_tools_memory.db")
-    facts = __import__("storage", fromlist=["Facts"]).Facts("test_tools_memory.db")
-    all_facts = facts.get_all(222)
-    assert any("Алекс" in f for f in all_facts), all_facts
+    all_pairs = bot_module.memory.get_all()
+    assert any("Алекс" in v for n, v in all_pairs), all_pairs
     assert captured[1][1].text == "Запомнил."
 
-    os.remove("test_tools_memory.db")
+    if os.path.exists("test_tools_memory.db"):
+        os.remove("test_tools_memory.db")
     print("ADD_MEMORY_TEST_PASSED")
+
+
+async def test_list_and_search_memory():
+    config.MEMORY_DB_PATH = "test_tools_memory.db"
+    import bot as bot_module
+
+    bot_module.memory = Memory("test_tools_memory.db")
+    bot_module.dialog_memory = DialogMemory()
+
+    # наполняем память парами и диалогами
+    bot_module.memory.add("имя", "Алекс")
+    bot_module.memory.add("предпочтение", "любит пиццу")
+    bot_module.dialog_memory.add(1, "user", "привет, меня зовут Алекс")
+    bot_module.dialog_memory.add(2, "user", "а я люблю пиццу и шио")
+
+    from bot import execute_tool
+
+    res = await execute_tool(1, "list_memory", "{}")
+    assert "имя = Алекс" in res, res
+    assert "предпочтение = любит пиццу" in res, res
+
+    res = await execute_tool(1, "search_memory", '{"query": "пицц"}')
+    assert "пицц" in res, res
+    assert "[чат:user] а я люблю пиццу и шио" in res, res
+    assert "[память] предпочтение = любит пиццу" in res, res
+
+    res = await execute_tool(1, "search_memory", '{"query": "zzzнет"}')
+    assert res == "Ничего не найдено.", res
+
+    if os.path.exists("test_tools_memory.db"):
+        os.remove("test_tools_memory.db")
+    print("LIST_SEARCH_MEMORY_TEST_PASSED")
 
 
 async def main():
     await test_tool_loop()
     await test_add_memory_tool()
+    await test_list_and_search_memory()
 
 
 if __name__ == "__main__":

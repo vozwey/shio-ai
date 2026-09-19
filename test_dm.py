@@ -21,7 +21,7 @@ from aiogram.methods import SendMessage
 from aiogram.types import Update, User, Message, Chat
 
 from bot import dp
-from storage import Memory
+from storage import DialogMemory
 
 TEST_ANSWER = "dm-ответ"
 
@@ -72,13 +72,12 @@ async def test_dm():
     assert captured_methods[0].text == "Думаю..."
     assert captured_methods[1].text == TEST_ANSWER
 
-    memory = Memory("test_dm.db")
-    ctx = memory.get_context(555)
+    from bot import dialog_memory as bot_dialog_memory
+    ctx = bot_dialog_memory.get_context(555)
     assert len(ctx) == 2
     assert ctx[0].content == "привет бот"
     assert ctx[1].content == TEST_ANSWER
 
-    os.remove("test_dm.db")
     print("DM_TEST_PASSED")
 
 

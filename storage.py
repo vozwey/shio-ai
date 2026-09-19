@@ -1,8 +1,6 @@
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-
-from config import MEMORY_DB_PATH
 
 
 @dataclass
@@ -12,154 +10,70 @@ class Message:
     created_at: datetime
 
 
-class Memory:
-    """Хранит контекст диалога per-user в SQLite."""
+class DialogMemory:
+    """Per-user контекст диалога — только в оперативной памяти (RAM).
 
-    def __init__(self, db_path: str, context_size: int = 20):
-        self.db_path = db_path
+    При перезапуске бота переписки теряются. Хранит последние
+    context_size сообщений каждого пользователя, обрезая хвост.
+    """
+
+    def __init__(self, context_size: int = 20):
         self.context_size = context_size
-        self._init_db()
-
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    def _init_db(self) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, id)"
-            )
-            conn.commit()
+        self._store: dict[int, list[Message]] = {}
 
     def add(self, user_id: int, role: str, content: str) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO messages (user_id, role, content, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (user_id, role, content, datetime.now(timezone.utc).isoformat()),
-            )
-            # обрезаем хвост, оставляя последние context_size сообщений
-            conn.execute(
-                """
-                DELETE FROM messages
-                WHERE user_id = ? AND id NOT IN (
-                    SELECT id FROM messages
-                    WHERE user_id = ?
-                    ORDER BY id DESC
-                    LIMIT ?
-                )
-                """,
-                (user_id, user_id, self.context_size),
-            )
-            conn.commit()
+        msgs = self._store.setdefault(user_id, [])
+        msgs.append(Message(role=role, content=content, created_at=datetime.now(timezone.utc)))
+        del msgs[: -self.context_size]
 
     def get_context(self, user_id: int) -> list[Message]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT role, content, created_at
-                FROM messages
-                WHERE user_id = ?
-                ORDER BY id ASC
-                """,
-                (user_id,),
-            ).fetchall()
-            return [
-                Message(
-                    role=r["role"],
-                    content=r["content"],
-                    created_at=datetime.fromisoformat(r["created_at"]),
-                )
-                for r in rows
-            ]
+        return list(self._store.get(user_id, []))
 
-    def clear(self, user_id: int) -> None:
-        with self._connect() as conn:
-            conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
-            conn.commit()
+    def all_messages(self) -> list[Message]:
+        """Все сообщения всех пользователей (любые роли) — для поиска по чатам."""
+        out: list[Message] = []
+        for msgs in self._store.values():
+            out.extend(msgs)
+        return out
 
 
-class Facts:
-    """Долговременные факты и воспоминания о пользователе (SQLite)."""
+class Memory:
+    """Общая память пар «название — значение» (строки) на всех пользователей.
+
+    Загружается из SQLite при старте бота, дальше живёт только в оперативной
+    памяти. db_path игнорируется после загрузки (оставлен для совместимости).
+    """
 
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self._init_db()
+        self._pairs: list[tuple[str, str]] = []
+        self._load()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _load(self) -> None:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                cur = conn.execute("SELECT name, value FROM memory ORDER BY id ASC")
+                self._pairs = [(r[0], r[1]) for r in cur.fetchall()]
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            # таблицы ещё нет — начинаем с пустой памяти
+            self._pairs = []
 
-    def _init_db(self) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS facts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_facts_user ON facts(user_id, id)"
-            )
-            conn.commit()
+    def add(self, name: str, value: str) -> None:
+        self._pairs.append((name, value))
 
-    def add(self, user_id: int, content: str) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO facts (user_id, content, created_at) VALUES (?, ?, ?)",
-                (user_id, content, datetime.now(timezone.utc).isoformat()),
-            )
-            conn.commit()
+    def get_all(self, limit: int = 100) -> list[tuple[str, str]]:
+        return list(self._pairs[:limit])
 
-    def search(self, user_id: int, query: str, limit: int = 10) -> list[str]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT content FROM facts
-                WHERE user_id = ? AND content LIKE ?
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (user_id, f"%{query}%", limit),
-            ).fetchall()
-            return [r["content"] for r in rows]
+    def search(self, query: str, limit: int = 20) -> list[tuple[str, str]]:
+        q = query.lower()
+        return [p for p in self._pairs if q in p[0].lower() or q in p[1].lower()][:limit]
 
-    def get_all(self, user_id: int, limit: int = 50) -> list[str]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT content FROM facts
-                WHERE user_id = ?
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (user_id, limit),
-            ).fetchall()
-            return [r["content"] for r in reversed(rows)]
-
-    def delete(self, user_id: int, fact_id: int) -> bool:
-        with self._connect() as conn:
-            cur = conn.execute(
-                "DELETE FROM facts WHERE user_id = ? AND id = ?", (user_id, fact_id)
-            )
-            conn.commit()
-            return cur.rowcount > 0
+    def delete(self, name: str) -> bool:
+        for i, (n, _) in enumerate(self._pairs):
+            if n == name:
+                del self._pairs[i]
+                return True
+        return False

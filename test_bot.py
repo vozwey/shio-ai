@@ -15,7 +15,7 @@ if os.path.exists("test_bot.db"):
 
 from unittest.mock import AsyncMock, patch
 
-from storage import Memory
+from storage import DialogMemory
 
 TEST_ANSWER = "Привет, это тестовый ответ!"
 
@@ -37,7 +37,7 @@ class CompletionResponse:
 
 
 async def test_full_cycle():
-    memory = Memory("test_bot.db")
+    dialog_memory = DialogMemory()
     user_id = 42
 
     with patch("bot.client") as mock_client:
@@ -50,13 +50,11 @@ async def test_full_cycle():
         answer = await ask_llm(user_id, "Привет!")
         assert answer == TEST_ANSWER, answer
 
-    conn = sqlite3 = __import__("sqlite3")
-    conn = sqlite3.connect("test_bot.db")
-    rows = conn.execute("SELECT role, content FROM messages WHERE user_id = ? ORDER BY id", (user_id,)).fetchall()
-    conn.close()
-    assert len(rows) == 2, rows
-    assert rows[0] == ("user", "Привет!"), rows
-    assert rows[1] == ("assistant", TEST_ANSWER), rows
+    from bot import dialog_memory as bot_dialog_memory
+    ctx = bot_dialog_memory.get_context(user_id)
+    assert len(ctx) == 2, ctx
+    assert ctx[0].role == "user" and ctx[0].content == "Привет!", ctx
+    assert ctx[1].role == "assistant" and ctx[1].content == TEST_ANSWER, ctx
 
     with patch("bot.client") as mock_client:
         captured = None
@@ -77,7 +75,6 @@ async def test_full_cycle():
     assert captured[2]["role"] == "assistant" and captured[2]["content"] == TEST_ANSWER
     assert captured[3]["role"] == "user" and captured[3]["content"] == "Как дела?"
 
-    os.remove("test_bot.db")
     print("ALL_TESTS_PASSED")
 
 

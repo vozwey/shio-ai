@@ -20,7 +20,7 @@ from aiogram import Bot
 from aiogram.types import Update, User, Message, Chat
 from bot import ANSWER_MAX_CHAR, OPENAI_MAX_TOKENS, dp
 
-from storage import Memory
+from storage import DialogMemory
 
 @dataclass
 class Choice:
@@ -55,12 +55,12 @@ async def main():
     assert create_kwargs["max_tokens"] == OPENAI_MAX_TOKENS, create_kwargs["max_tokens"]
     assert len(captured[1][1].text) == ANSWER_MAX_CHAR, len(captured[1][1].text)
     # память сохранилась
-    memory = Memory("test_len.db")
-    ctx = memory.get_context(999)
+    from bot import dialog_memory as bot_dialog_memory
+    ctx = bot_dialog_memory.get_context(999)
     assert len(ctx) == 2
     assert len(ctx[0].content) == ANSWER_MAX_CHAR
     assert len(ctx[1].content) == ANSWER_MAX_CHAR
-    os.remove("test_len.db")
+
     print("LENGTH_LIMIT_OK")
 
 asyncio.run(main())

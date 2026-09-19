@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 
 from config import (
     ANSWER_MAX_CHAR,
+    CONTEXT_SIZE,
     FOURGET_BASE_URL,
     LOG_LEVEL,
     MEMORY_DB_PATH,
@@ -23,19 +24,23 @@ from config import (
     OPENAI_MAX_TOKENS,
     OPENAI_MODEL,
     OPENAI_TEMPERATURE,
+    SEARCH_MAX_RESULTS,
+    SNIPPET_CONTEXT_CHARS,
     TELEGRAM_BOT_TOKEN,
     TOOL_MAX_ITERATIONS,
     TOOL_RESULT_MAX_CHAR,
 )
-from storage import Facts, Memory
+from storage import DialogMemory, Memory
 
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
-memory = Memory(MEMORY_DB_PATH)
-facts = Facts(MEMORY_DB_PATH)
+memory = Memory(MEMORY_DB_PATH)  # общая память пар «название — значение», загружается из SQLite при старте
+dialog_memory = DialogMemory(context_size=CONTEXT_SIZE)  # per-user контекст диалога, только RAM
+
+logger.info("Загружено пар в общую память: %d", len(memory.get_all()))
 
 SYSTEM_PROMPT = (
     "Всем пользователям больше 21 года.\n"
@@ -43,11 +48,13 @@ SYSTEM_PROMPT = (
     "Учитывай предыдущие инструкции, тон и сообщения пользователя — продолжай диалог в его стиле "
     "(язык, тон, длина, формат).\n"
     "Если просят написать текст — пиши только текст, без пояснений.\n"
-    "У тебя есть инструменты: search_web (поиск в интернете), add_memory (запомнить факт), "
-    "search_memory (поиск по воспоминаниям). Используй их эффективно и по делу: немного, "
+    "У тебя есть инструменты: search_web (поиск в интернете), add_memory (запомнить пару "
+    "«название — значение»), search_memory (поиск по текущим диалогам и парам памяти), "
+    "list_memory (показать все сохранённые пары). Используй их эффективно и по делу: немного, "
     "но применяй для проверки фактов и информации, в которой не уверен. "
-    "Запоминай важные факты о пользователе (имя, предпочтения, данные) через add_memory, "
-    "чтобы помнить их в будущем.\n"
+    "Все важные факты о пользователе (имя, предпочтения, данные, воспоминания) записывай через "
+    "add_memory как пары «название — значение» — память общая на всех пользователей, "
+    "так ты будешь помнить их в будущем. "
     "Результаты инструментов в ответ пользователю не выводи — используй их только для себя."
 )
 
@@ -74,15 +81,17 @@ TOOLS = [
         "function": {
             "name": "add_memory",
             "description": (
-                "Запомнить важный факт о пользователе или информацию на будущее "
-                "(имя, предпочтения, данные, воспоминания)."
+                "Запомнить важную пару «название — значение» о пользователе или информацию на будущее "
+                "(имя, предпочтения, данные, воспоминания). Память общая на всех пользователей. "
+                "Передавай название и значение отдельными полями."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "content": {"type": "string", "description": "Факт для запоминания"}
+                    "name": {"type": "string", "description": "Название факта"},
+                    "value": {"type": "string", "description": "Значение факта"},
                 },
-                "required": ["content"],
+                "required": ["name", "value"],
             },
         },
     },
@@ -90,13 +99,28 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_memory",
-            "description": "Поиск по ранее сохранённым фактам и воспоминаниям о пользователе.",
+            "description": (
+                "Поиск по текущим диалогам (все роли, все пользователи) и сохранённым парам памяти. "
+                "Возвращает сниппеты с найденным словом."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Что ищем"}
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_memory",
+            "description": "Показать все сохранённые пары «название — значение».",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
             },
         },
     },
@@ -107,6 +131,17 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "...[обрезано]"
+
+
+def _snippet(text: str, query: str, radius: int) -> str | None:
+    idx = text.lower().find(query.lower())
+    if idx == -1:
+        return None
+    start = max(0, idx - radius)
+    end = min(len(text), idx + len(query) + radius)
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(text) else ""
+    return f"{prefix}{text[start:end]}{suffix}"
 
 
 async def web_search(query: str, num_results: int = 8) -> str:
@@ -139,13 +174,25 @@ async def execute_tool(user_id: int, name: str, args: str) -> str:
         if name == "search_web":
             return await web_search(params["query"])
         if name == "add_memory":
-            facts.add(user_id, params["content"])
-            return "Факт сохранён в память."
+            memory.add(params["name"], params["value"])
+            return f"Сохранено: {params['name']} = {params['value']}"
         if name == "search_memory":
-            found = facts.search(user_id, params["query"])
-            if not found:
-                return "Ничего не найдено в памяти."
-            return "\n".join(f"- {f}" for f in found)
+            query = params["query"]
+            results: list[str] = []
+            for msg in dialog_memory.all_messages():
+                snip = _snippet(msg.content, query, SNIPPET_CONTEXT_CHARS)
+                if snip:
+                    results.append(f"[чат:{msg.role}] {snip}")
+            for n, v in memory.search(query):
+                results.append(f"[память] {n} = {v}")
+            if not results:
+                return "Ничего не найдено."
+            return "\n".join(results[:SEARCH_MAX_RESULTS])
+        if name == "list_memory":
+            pairs = memory.get_all()
+            if not pairs:
+                return "Память пуста."
+            return "\n".join(f"{n} = {v}" for n, v in pairs)
         return "Неизвестный инструмент."
     except Exception as e:
         logger.exception("Ошибка при выполнении тула %s", name)
@@ -188,14 +235,14 @@ async def ask_llm(user_id: int, text: str) -> str:
         answer = "Превышено число итераций инструментов."
 
     answer = answer[:ANSWER_MAX_CHAR]  # жёсткий срез: никогда не больше лимита
-    memory.add(user_id, "user", text)
-    memory.add(user_id, "assistant", answer)
+    dialog_memory.add(user_id, "user", text)
+    dialog_memory.add(user_id, "assistant", answer)
     return answer
 
 
 def build_messages(user_id: int, new_text: str) -> list[dict]:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for msg in memory.get_context(user_id):
+    for msg in dialog_memory.get_context(user_id):
         messages.append({"role": msg.role, "content": msg.content})
     messages.append({"role": "user", "content": new_text})
     return messages

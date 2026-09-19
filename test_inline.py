@@ -20,7 +20,7 @@ from aiogram.methods import AnswerInlineQuery
 from aiogram.types import Update, User, InlineQuery
 
 from bot import dp
-from storage import Memory
+from storage import DialogMemory
 
 TEST_ANSWER = "inline-ответ"
 
@@ -68,14 +68,11 @@ async def test_inline():
     assert result.description == TEST_ANSWER[:100]
     assert captured_method.cache_time == 0
     assert captured_method.is_personal is True
-
-    memory = Memory("test_inline.db")
-    ctx = memory.get_context(777)
+    from bot import dialog_memory as bot_dialog_memory
+    ctx = bot_dialog_memory.get_context(777)
     assert len(ctx) == 2
     assert ctx[0].content == "тестовый запрос"
     assert ctx[1].content == TEST_ANSWER
-
-    os.remove("test_inline.db")
     print("INLINE_TEST_PASSED")
 
 
