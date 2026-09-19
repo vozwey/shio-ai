@@ -40,7 +40,6 @@ cp .env.example .env
 | `SNIPPET_CONTEXT_CHARS` | `25` | Символов контекста вокруг найденного слова в search_memory |
 | `SEARCH_MAX_RESULTS` | `20` | Максимум сниппетов, возвращаемых search_memory |
 | `FOURGET_BASE_URL` | `https://4get.joygnu.org` | Базовый URL поисковика 4get |
-| `TOOL_MAX_ITERATIONS` | `5` | Максимум тул-коллов за запрос (защита от цикла) |
 | `TOOL_RESULT_MAX_CHAR` | `2000` | Лимит символов результата тула для модели |
 
 > `*.env` добавлен в `.gitignore` — не коммитьте реальные ключи.

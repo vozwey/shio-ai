@@ -31,10 +31,6 @@ class Settings(BaseSettings):
     answer_max_char: int = Field(
         4000, ge=1, description="Жёсткий лимит символов финального ответа"
     )
-
-    tool_max_iterations: int = Field(
-        5, ge=1, description="Максимум тул-коллов за запрос (защита от цикла)"
-    )
     tool_result_max_char: int = Field(
         2000, ge=1, description="Лимит символов результата тула для модели"
     )
@@ -59,5 +55,4 @@ ANSWER_MAX_CHAR = settings.answer_max_char
 CONTEXT_SIZE = settings.context_size
 SNIPPET_CONTEXT_CHARS = settings.snippet_context_chars
 SEARCH_MAX_RESULTS = settings.search_max_results
-TOOL_MAX_ITERATIONS = settings.tool_max_iterations
 TOOL_RESULT_MAX_CHAR = settings.tool_result_max_char

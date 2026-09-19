@@ -3,7 +3,6 @@ from src.config import (
     OPENAI_MAX_TOKENS,
     OPENAI_MODEL,
     OPENAI_TEMPERATURE,
-    TOOL_MAX_ITERATIONS,
     TOOL_RESULT_MAX_CHAR,
 )
 
@@ -47,7 +46,7 @@ async def ask_llm(
     messages = build_messages(user_id, text, image_urls)
     answer = ""
 
-    for _ in range(TOOL_MAX_ITERATIONS):
+    while True:
         response = await client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=messages,
@@ -76,8 +75,6 @@ async def ask_llm(
 
         answer = message.content or ""
         break
-    else:
-        answer = "Превышено число итераций инструментов."
 
     answer = answer[:ANSWER_MAX_CHAR]
     dialog_memory.add(user_id, "user", text)
