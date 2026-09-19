@@ -32,7 +32,6 @@ class Settings(BaseSettings):
         4000, ge=1, description="Жёсткий лимит символов финального ответа"
     )
 
-    # Тул-коллинг
     tool_max_iterations: int = Field(
         5, ge=1, description="Максимум тул-коллов за запрос (защита от цикла)"
     )
@@ -48,7 +47,6 @@ def get_settings() -> Settings:
 
 settings = get_settings()
 
-# плоские алиасы для совместимости имён в проекте
 TELEGRAM_BOT_TOKEN = settings.telegram_bot_token
 OPENAI_API_KEY = settings.openai_api_key
 OPENAI_BASE_URL = settings.openai_base_url

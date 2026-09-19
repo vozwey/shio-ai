@@ -5,17 +5,12 @@ from datetime import datetime, timezone
 
 @dataclass
 class Message:
-    role: str  # "user" | "assistant"
+    role: str
     content: str
     created_at: datetime
 
 
 class DialogMemory:
-    """Per-user контекст диалога — только в оперативной памяти (RAM).
-
-    При перезапуске бота переписки теряются. Хранит последние
-    context_size сообщений каждого пользователя, обрезая хвост.
-    """
 
     def __init__(self, context_size: int = 20):
         self.context_size = context_size
@@ -30,7 +25,6 @@ class DialogMemory:
         return list(self._store.get(user_id, []))
 
     def all_messages(self) -> list[Message]:
-        """Все сообщения всех пользователей (любые роли) — для поиска по чатам."""
         out: list[Message] = []
         for msgs in self._store.values():
             out.extend(msgs)
@@ -38,12 +32,6 @@ class DialogMemory:
 
 
 class Memory:
-    """Общая память пар «название — значение» (строки) на всех пользователей.
-
-    Хранится постоянно в SQLite и загружается в RAM при старте бота.
-    Любое добавление/удаление сразу пишется в SQLite, поэтому пары
-    переживают перезапуск бота.
-    """
 
     def __init__(self, db_path: str):
         self.db_path = db_path

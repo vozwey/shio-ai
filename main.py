@@ -3,8 +3,10 @@ import logging
 
 from aiogram import Bot, Dispatcher
 
-from bot import bot, dp, memory
-from config import LOG_LEVEL
+from src.core import bot, dp, memory
+from src.config import LOG_LEVEL
+
+import src.bot  # noqa: F401
 
 logging.basicConfig(
     level=LOG_LEVEL,
