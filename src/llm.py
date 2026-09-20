@@ -38,19 +38,15 @@ def build_messages(
     user_info: UserInfo | None = None,
     image_urls: list[str] | None = None,
 ) -> list[dict]:
-    messages = [{"role": "system", "content": get_system_prompt()}]
+    system_content = get_system_prompt()
     if user_info:
         who = f"{user_info.first_name}"
         if user_info.last_name:
             who += f" {user_info.last_name}"
         if user_info.username:
             who += f" (@{user_info.username})"
-        messages.append(
-            {
-                "role": "system",
-                "content": f"Собеседник: {who} (uid={user_info.id}).",
-            }
-        )
+        system_content += f"\n\nСобеседник: {who} (uid={user_info.id})."
+    messages = [{"role": "system", "content": system_content}]
     for msg in dialog_memory.get_context(user_id):
         messages.append({"role": msg.role, "content": msg.content})
     if image_urls:
