@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     openai_max_tokens: int = Field(
         1500, ge=1, description="Лимит токенов ответа через API"
     )
+    openai_reasoning_effort: str | None = Field(
+        None, description="reasoning_effort для reasoning-моделей (minimal/low/medium/high)"
+    )
 
     memory_db_path: str = Field("memory.db", description="Путь к SQLite-базе памяти (загружается при старте)")
     log_level: str = Field("INFO", description="Уровень логирования")
@@ -49,6 +52,7 @@ OPENAI_BASE_URL = settings.openai_base_url
 OPENAI_MODEL = settings.openai_model
 OPENAI_TEMPERATURE = settings.openai_temperature
 OPENAI_MAX_TOKENS = settings.openai_max_tokens
+OPENAI_REASONING_EFFORT = settings.openai_reasoning_effort
 MEMORY_DB_PATH = settings.memory_db_path
 LOG_LEVEL = settings.log_level
 ANSWER_MAX_CHAR = settings.answer_max_char

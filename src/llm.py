@@ -4,6 +4,7 @@ from src.config import (
     ANSWER_MAX_CHAR,
     OPENAI_MAX_TOKENS,
     OPENAI_MODEL,
+    OPENAI_REASONING_EFFORT,
     OPENAI_TEMPERATURE,
     TOOL_RESULT_MAX_CHAR,
 )
@@ -71,14 +72,17 @@ async def ask_llm(
     answer = ""
 
     while True:
-        response = await client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=messages,
-            temperature=OPENAI_TEMPERATURE,
-            max_tokens=OPENAI_MAX_TOKENS,
-            tools=get_tools_schema(),
-            tool_choice="auto",
-        )
+        create_kwargs = {
+            "model": OPENAI_MODEL,
+            "messages": messages,
+            "temperature": OPENAI_TEMPERATURE,
+            "max_tokens": OPENAI_MAX_TOKENS,
+            "tools": get_tools_schema(),
+            "tool_choice": "auto",
+        }
+        if OPENAI_REASONING_EFFORT is not None:
+            create_kwargs["reasoning_effort"] = OPENAI_REASONING_EFFORT
+        response = await client.chat.completions.create(**create_kwargs)
         choice = response.choices[0]
         message = choice.message
 
