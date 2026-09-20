@@ -89,6 +89,7 @@ async def process_and_reply(message: Message):
     bot_username = bot_info.username
 
     prompt_text = _collect_text(message, bot_username)
+
     if not prompt_text:
         return
 
@@ -113,7 +114,7 @@ async def process_and_reply(message: Message):
         )
         await message.answer_guest_query(result=result)
     else:
-        thinking = await message.answer("думаю...")
+        thinking = await message.answer("щя")
         await thinking.edit_text(answer)
 
 

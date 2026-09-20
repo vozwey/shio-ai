@@ -73,7 +73,9 @@ async def ask_llm(
                 )
             continue
 
-        answer = message.content or ""
+        answer = message.content
+        if answer is None:
+            continue
         break
 
     answer = answer[:ANSWER_MAX_CHAR]
