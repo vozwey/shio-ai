@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from src.config import (
     ANSWER_MAX_CHAR,
     OPENAI_MAX_TOKENS,
@@ -8,6 +10,14 @@ from src.config import (
 
 from src.core import client, dialog_memory
 from src.tools.registry import execute_tool, get_tools_schema, inject_tools_prompt
+
+
+@dataclass
+class UserInfo:
+    id: int
+    first_name: str
+    last_name: str | None = None
+    username: str | None = None
 
 
 def get_system_prompt() -> str:
@@ -23,9 +33,24 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def build_messages(
-    user_id: int, new_text: str, image_urls: list[str] | None = None
+    user_id: int,
+    new_text: str,
+    user_info: UserInfo | None = None,
+    image_urls: list[str] | None = None,
 ) -> list[dict]:
     messages = [{"role": "system", "content": get_system_prompt()}]
+    if user_info:
+        who = f"{user_info.first_name}"
+        if user_info.last_name:
+            who += f" {user_info.last_name}"
+        if user_info.username:
+            who += f" (@{user_info.username})"
+        messages.append(
+            {
+                "role": "system",
+                "content": f"Собеседник: {who} (uid={user_info.id}).",
+            }
+        )
     for msg in dialog_memory.get_context(user_id):
         messages.append({"role": msg.role, "content": msg.content})
     if image_urls:
@@ -40,10 +65,13 @@ def build_messages(
 
 
 async def ask_llm(
-    user_id: int, text: str, image_urls: list[str] | None = None
+    user_id: int,
+    text: str,
+    user_info: UserInfo | None = None,
+    image_urls: list[str] | None = None,
 ) -> str:
     text = text[:ANSWER_MAX_CHAR]
-    messages = build_messages(user_id, text, image_urls)
+    messages = build_messages(user_id, text, user_info, image_urls)
     answer = ""
 
     while True:
@@ -66,6 +94,7 @@ async def ask_llm(
                 and not (m["role"] == "assistant" and m.get("tool_calls"))
             ]
             messages.append(message)
+            from src.tools.registry import execute_tool
             for tc in message.tool_calls:
                 result = await execute_tool(
                     user_id, tc.function.name, tc.function.arguments

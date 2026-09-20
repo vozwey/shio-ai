@@ -1,4 +1,11 @@
-from src.tools.memory import add_memory, list_memory, search_memory
+from src.tools.memory import (
+    add_memory,
+    delete_memory,
+    get_memory_by_tag,
+    list_memory,
+    list_memory_tags,
+    search_memory,
+)
 from src.tools.web import fetch_url, search_web
 
 __all__ = [
@@ -7,4 +14,7 @@ __all__ = [
     "add_memory",
     "search_memory",
     "list_memory",
+    "list_memory_tags",
+    "get_memory_by_tag",
+    "delete_memory",
 ]

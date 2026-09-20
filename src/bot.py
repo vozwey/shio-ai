@@ -13,7 +13,7 @@ from aiogram.types import (
 from aiogram.utils.formatting import ExpandableBlockQuote
 
 from src.core import bot, dp
-from src.llm import ask_llm
+from src.llm import UserInfo, ask_llm
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +100,15 @@ async def process_and_reply(message: Message):
         logger.warning("Не удалось загрузить изображение: %s", e)
         image_urls = []
 
+    user_info = UserInfo(
+        id=message.from_user.id,
+        first_name=message.from_user.first_name or "Unknown",
+        last_name=message.from_user.last_name,
+        username=message.from_user.username,
+    )
+
     try:
-        answer = await ask_llm(message.from_user.id, prompt_text, image_urls or None)
+        answer = await ask_llm(message.from_user.id, prompt_text, user_info, image_urls or None)
     except Exception as e:
         logger.exception("Ошибка ask_llm")
         answer = f"Произошла ошибка: {e}"

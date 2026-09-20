@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         1500, ge=1, description="Лимит токенов ответа через API"
     )
 
-    memory_db_path: str = Field("facts.db", description="Путь к SQLite-базе памяти (загружается при старте)")
+    memory_db_path: str = Field("memory.db", description="Путь к SQLite-базе памяти (загружается при старте)")
     log_level: str = Field("INFO", description="Уровень логирования")
 
     context_size: int = Field(20, ge=1, description="Размер per-user контекста диалога (сообщений в RAM)")
