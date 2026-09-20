@@ -89,7 +89,7 @@ async def ask_llm(
                 if m["role"] != "tool"
                 and not (m["role"] == "assistant" and m.get("tool_calls"))
             ]
-            messages.append(message)
+            messages.append(message.model_dump(mode="json", exclude_unset=True))
             from src.tools.registry import execute_tool
             for tc in message.tool_calls:
                 result = await execute_tool(
