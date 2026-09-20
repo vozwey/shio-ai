@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import json
+import logging
 
 from src.config import (
     ANSWER_MAX_CHAR,
@@ -11,6 +13,20 @@ from src.config import (
 
 from src.core import client, dialog_memory
 from src.tools.registry import execute_tool, get_tools_schema, inject_tools_prompt
+
+logger = logging.getLogger(__name__)
+
+
+def _elide(text: str, head: int = 25, tail: int = 25) -> str:
+    if len(text) <= head + tail + 3:
+        return text
+    return f"{text[:head]}...{text[-tail:]}"
+
+
+def _log_value(value) -> str:
+    if isinstance(value, str):
+        return _elide(value)
+    return _elide(json.dumps(value, ensure_ascii=False))
 
 
 @dataclass
@@ -58,6 +74,9 @@ def build_messages(
         messages.append({"role": "user", "content": content})
     else:
         messages.append({"role": "user", "content": new_text})
+    logger.debug(">>> LLM input (%d messages):", len(messages))
+    for m in messages:
+        logger.debug("    [%s] %s", m["role"], _log_value(m["content"]))
     return messages
 
 
@@ -87,6 +106,9 @@ async def ask_llm(
         message = choice.message
 
         if message.tool_calls:
+            logger.info(">>> tool_calls:")
+            for tc in message.tool_calls:
+                logger.info("    - %s(%s)", tc.function.name, _log_value(tc.function.arguments))
             messages = [
                 m
                 for m in messages
@@ -99,6 +121,7 @@ async def ask_llm(
                 result = await execute_tool(
                     user_id, tc.function.name, tc.function.arguments
                 )
+                logger.info("    <- %s = %s", tc.function.name, _log_value(result))
                 messages.append(
                     {
                         "role": "tool",
@@ -112,6 +135,8 @@ async def ask_llm(
         if answer is None:
             continue
         break
+
+    logger.info("<<< LLM answer: %s", _log_value(answer))
 
     answer = answer[:ANSWER_MAX_CHAR]
     dialog_memory.add(user_id, "user", text)
