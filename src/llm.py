@@ -59,6 +59,12 @@ async def ask_llm(
         message = choice.message
 
         if message.tool_calls:
+            messages = [
+                m
+                for m in messages
+                if m["role"] != "tool"
+                and not (m["role"] == "assistant" and m.get("tool_calls"))
+            ]
             messages.append(message)
             for tc in message.tool_calls:
                 result = await execute_tool(

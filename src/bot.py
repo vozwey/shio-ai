@@ -10,6 +10,7 @@ from aiogram.types import (
     InputTextMessageContent,
     Message,
 )
+from aiogram.utils.formatting import ExpandableBlockQuote
 
 from src.core import bot, dp
 from src.llm import ask_llm
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
-        "Привет! Я - СЫН ШЛЮХИ. Отправь мне сообщение, или вызови через @ в любом чате."
+        "Привет! Я - момащка шио. Отправь мне сообщение, или вызови через @ в любом чате."
     )
     await bot.set_my_commands(
         [BotCommand(command="start", description="Запустить бота")]
@@ -115,7 +116,8 @@ async def process_and_reply(message: Message):
         await message.answer_guest_query(result=result)
     else:
         thinking = await message.answer("щя")
-        await thinking.edit_text(answer)
+        content = ExpandableBlockQuote(answer)
+        await thinking.edit_text(**content.as_kwargs())
 
 
 @dp.guest_message()
