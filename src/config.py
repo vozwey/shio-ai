@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = Field(..., description="Токен Telegram-бота")
 
-    openai_api_key: str | None = Field(None, description="API-ключ OpenAI-совместимого сервиса (опционально)")
+    openai_api_key: str = Field(..., description="API-ключ OpenAI-совместимого сервиса")
     openai_base_url: str = Field(..., description="Базовый URL API")
     openai_model: str = Field("gpt-4o-mini", description="Имя модели")
     openai_temperature: float = Field(
