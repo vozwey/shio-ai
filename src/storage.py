@@ -12,14 +12,15 @@ class Message:
 
 
 class DialogMemory:
-
     def __init__(self, context_size: int = 20):
         self.context_size = context_size
         self._store: dict[int, list[Message]] = {}
 
     def add(self, user_id: int, role: str, content: str) -> None:
         msgs = self._store.setdefault(user_id, [])
-        msgs.append(Message(role=role, content=content, created_at=datetime.now(timezone.utc)))
+        msgs.append(
+            Message(role=role, content=content, created_at=datetime.now(timezone.utc))
+        )
         del msgs[: -self.context_size]
 
     def get_context(self, user_id: int) -> list[Message]:
@@ -30,6 +31,9 @@ class DialogMemory:
         for msgs in self._store.values():
             out.extend(msgs)
         return out
+
+    def clear(self, id: int):
+        self._store[id].clear()
 
 
 @dataclass
@@ -60,9 +64,7 @@ class Memory:
                 "tags TEXT NOT NULL DEFAULT '[]', "
                 "user_id INTEGER)"
             )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_memory_tags ON memory (tags)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_tags ON memory (tags)")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_memory_user_id ON memory (user_id)"
             )
@@ -136,7 +138,9 @@ class Memory:
         q = tag.lower()
         return [p for p in self._pairs if any(q in t.lower() for t in p.tags)][:limit]
 
-    def search(self, query: str, tag: str | None = None, limit: int = 20) -> list[MemoryPair]:
+    def search(
+        self, query: str, tag: str | None = None, limit: int = 20
+    ) -> list[MemoryPair]:
         q = query.lower()
         pairs = self._pairs
         if tag:
@@ -145,7 +149,9 @@ class Memory:
         return [
             p
             for p in pairs
-            if q in p.name.lower() or q in p.value.lower() or any(q in x.lower() for x in p.tags)
+            if q in p.name.lower()
+            or q in p.value.lower()
+            or any(q in x.lower() for x in p.tags)
         ][:limit]
 
     def delete(self, name: str) -> bool:

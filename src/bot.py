@@ -12,7 +12,7 @@ from aiogram.types import (
 )
 from aiogram.utils.formatting import ExpandableBlockQuote
 
-from src.core import bot, dp
+from src.core import bot, dp, dialog_memory
 from src.llm import UserInfo, ask_llm
 
 logger = logging.getLogger(__name__)
@@ -108,7 +108,9 @@ async def process_and_reply(message: Message):
     )
 
     try:
-        answer = await ask_llm(message.from_user.id, prompt_text, user_info, image_urls or None)
+        answer = await ask_llm(
+            message.from_user.id, prompt_text, user_info, image_urls or None
+        )
     except Exception as e:
         logger.exception("Ошибка ask_llm")
         answer = f"Произошла ошибка: {e}"
@@ -118,22 +120,40 @@ async def process_and_reply(message: Message):
         return
 
     if getattr(message, "guest_query_id", None):
-        result_id = hashlib.md5(f"g_{message.guest_query_id}".encode()).hexdigest()
-        result = InlineQueryResultArticle(
-            id=result_id,
-            title="Ответ",
-            input_message_content=InputTextMessageContent(message_text=answer),
-        )
-        await message.answer_guest_query(result=result)
+        await answer_gquery(message, answer)
     else:
         thinking = await message.answer("щя")
         content = ExpandableBlockQuote(answer)
         await thinking.edit_text(**content.as_kwargs())
 
 
+async def answer_gquery(message: Message, text: str):
+    result_id = hashlib.md5(f"g_{message.guest_query_id}".encode()).hexdigest()
+    result = InlineQueryResultArticle(
+        id=result_id,
+        title="Ответ",
+        input_message_content=InputTextMessageContent(message_text=text),
+    )
+    await message.answer_guest_query(result=result)
+
+
 @dp.guest_message()
 async def handle_guest(message: Message):
-    await process_and_reply(message)
+    text = str(message.text)
+    uid = message.guest_bot_caller_user.id if message.guest_bot_caller_user else 0
+    is_cmd = text.startswith("/")
+
+    if is_cmd:
+        args = text.split(" ")
+        cmd = args.pop(0)[1:].split("@")[0]
+
+        match cmd:
+            case "clear":
+                dialog_memory.clear(uid)
+            case _:
+                await answer_gquery(message, "пошел нахуй")
+    else:
+        await process_and_reply(message)
 
 
 @dp.message(
