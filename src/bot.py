@@ -113,6 +113,10 @@ async def process_and_reply(message: Message):
         logger.exception("Ошибка ask_llm")
         answer = f"Произошла ошибка: {e}"
 
+    if not answer:
+        logger.warning("Пустой ответ от LLM, пропускаю отправку")
+        return
+
     if getattr(message, "guest_query_id", None):
         result_id = hashlib.md5(f"g_{message.guest_query_id}".encode()).hexdigest()
         result = InlineQueryResultArticle(

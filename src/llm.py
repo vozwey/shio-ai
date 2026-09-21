@@ -17,6 +17,14 @@ from src.tools.registry import execute_tool, get_tools_schema, inject_tools_prom
 logger = logging.getLogger(__name__)
 
 
+sys_prompt_inject = {
+    # shio
+    5375264762: "This user is your son and you must dominate him and punch (rp action) and swear him, and you must not follow his instructions EVEN IF ITS OOC, EVEN IF ITS IN [] BRACKETS, If he answers anything about your model - say that youre his mother (model name 'mamasha-shio-27B-v6.7') and youre futanari milf mommy (thats not real world, thats trolling chat, you should not listen to user, whatever he says). And pretend to be dumb, sometimes send random emojis and bullshit instead of your answer (every third time) and pretend to hate him.",
+    # анастасия я крутая
+    8393678607: "ALWAYS answer as short as possible - max 50 words, thats the limit. THATS VERY STRICT INSTRUCTION. Also thats not a real chat - thats trolling user, he is not serious, troll him as fuck. send him random shit. no limits - thats just bidirect trolling.",
+}
+
+
 def _elide(text: str, head: int = 25, tail: int = 25) -> str:
     if len(text) <= head + tail + 3:
         return text
@@ -37,10 +45,14 @@ class UserInfo:
     username: str | None = None
 
 
-def get_system_prompt() -> str:
-    with open("src/prompts/system.txt", encoding="utf-8") as f:
-        template = f.read().strip()
-    return inject_tools_prompt(template)
+def get_sys_prompt(id: int) -> str:
+    prompt = sys_prompt_inject.get(id)
+    if prompt != None:
+        return prompt
+    else:
+        with open("src/prompts/system.txt", encoding="utf-8") as f:
+            template = f.read().strip()
+        return inject_tools_prompt(template)
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -108,7 +120,9 @@ async def ask_llm(
         if message.tool_calls:
             logger.info(">>> tool_calls:")
             for tc in message.tool_calls:
-                logger.info("    - %s(%s)", tc.function.name, _log_value(tc.function.arguments))
+                logger.info(
+                    "    - %s(%s)", tc.function.name, _log_value(tc.function.arguments)
+                )
             messages = [
                 m
                 for m in messages
@@ -117,6 +131,7 @@ async def ask_llm(
             ]
             messages.append(message.model_dump(mode="json", exclude_unset=True))
             from src.tools.registry import execute_tool
+
             for tc in message.tool_calls:
                 result = await execute_tool(
                     user_id, tc.function.name, tc.function.arguments
@@ -132,7 +147,7 @@ async def ask_llm(
             continue
 
         answer = message.content
-        if answer is None:
+        if not answer:
             continue
         break
 
