@@ -67,7 +67,7 @@ def build_messages(
     user_info: UserInfo | None = None,
     image_urls: list[str] | None = None,
 ) -> list[dict]:
-    system_content = get_system_prompt()
+    system_content = get_sys_prompt(user_id)
     if user_info:
         who = f"{user_info.first_name}"
         if user_info.last_name:
