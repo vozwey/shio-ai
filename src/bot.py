@@ -13,7 +13,7 @@ from aiogram.types import (
 from aiogram.utils.formatting import ExpandableBlockQuote
 
 from src.core import bot, dp, dialog_memory
-from src.llm import UserInfo, ask_llm
+from src.llm import UserInfo, ask_llm, get_preset
 
 logger = logging.getLogger(__name__)
 
@@ -147,12 +147,13 @@ async def handle_guest(message: Message):
         args = text.split(" ")
         cmd = args.pop(0)[1:].split("@")[0]
 
-        print(cmd)
-        print(args)
-
         match cmd:
             case "clear":
                 dialog_memory.clear(uid)
+            case "prompt":
+                dialog_memory.set_system_prompt(uid, " ".join(args))
+            case "preset":
+                dialog_memory.set_system_prompt(uid, get_preset(args[0]))
             case _:
                 await answer_gquery(message, "пошел нахуй")
     else:

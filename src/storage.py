@@ -15,6 +15,7 @@ class DialogMemory:
     def __init__(self, context_size: int = 20):
         self.context_size = context_size
         self._store: dict[int, list[Message]] = {}
+        self._system_prompts: dict[int, str] = {}
 
     def add(self, user_id: int, role: str, content: str) -> None:
         msgs = self._store.setdefault(user_id, [])
@@ -34,6 +35,12 @@ class DialogMemory:
 
     def clear(self, id: int):
         self._store[id].clear()
+
+    def set_system_prompt(self, user_id: int, prompt: str) -> None:
+        self._system_prompts[user_id] = prompt
+
+    def get_system_prompt(self, user_id: int) -> str | None:
+        return self._system_prompts.get(user_id)
 
 
 @dataclass
