@@ -147,6 +147,9 @@ async def handle_guest(message: Message):
         args = text.split(" ")
         cmd = args.pop(0)[1:].split("@")[0]
 
+        print(cmd)
+        print(args)
+
         match cmd:
             case "clear":
                 dialog_memory.clear(uid)
