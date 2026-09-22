@@ -52,6 +52,21 @@ def get_preset(preset: str) -> str:
     return inject_tools_prompt(prompt)
 
 
+def get_presets() -> list[str]:
+    return sorted(presets)
+
+
+def _who_block(user_info: UserInfo | None) -> str:
+    if not user_info:
+        return ""
+    who = f"{user_info.first_name}"
+    if user_info.last_name:
+        who += f" {user_info.last_name}"
+    if user_info.username:
+        who += f" (@{user_info.username})"
+    return f"\n\nСобеседник: {who} (uid={user_info.id})."
+
+
 def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
@@ -64,17 +79,15 @@ def build_messages(
     user_info: UserInfo | None = None,
     image_urls: list[str] | None = None,
 ) -> list[dict]:
-    system_content = get_preset("default")
-    if user_info:
-        who = f"{user_info.first_name}"
-        if user_info.last_name:
-            who += f" {user_info.last_name}"
-        if user_info.username:
-            who += f" (@{user_info.username})"
-        system_content += f"\n\nСобеседник: {who} (uid={user_info.id})."
-    messages = [{"role": "system", "content": system_content}]
-    for msg in dialog_memory.get_context(user_id):
-        messages.append({"role": msg.role, "content": msg.content})
+    history = dialog_memory.get_context(user_id)
+    if history and history[0].role == "system":
+        system_content = history[0].content
+        messages = [{"role": "system", "content": system_content + _who_block(user_info)}]
+        messages.extend({"role": m.role, "content": m.content} for m in history[1:])
+    else:
+        system_content = get_preset("default")
+        messages = [{"role": "system", "content": system_content + _who_block(user_info)}]
+        messages.extend({"role": m.role, "content": m.content} for m in history)
     if image_urls:
         content: list[dict] = [{"type": "text", "text": new_text}]
         content.extend(

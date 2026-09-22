@@ -34,13 +34,13 @@ class DialogMemory:
         return out
 
     def clear(self, id: int):
-        self._store[id].clear()
+        self._store.setdefault(id, []).clear()
 
-    def set_system_prompt(self, user_id: int, prompt: str) -> None:
-        self._system_prompts[user_id] = prompt
-
-    def get_system_prompt(self, user_id: int) -> str | None:
-        return self._system_prompts.get(user_id)
+    def reset_with_prompt(self, user_id: int, prompt: str) -> None:
+        self._store.setdefault(user_id, []).clear()
+        self._store[user_id].append(
+            Message(role="system", content=prompt, created_at=datetime.now(timezone.utc))
+        )
 
 
 @dataclass

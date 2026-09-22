@@ -4,24 +4,19 @@ import logging
 
 from aiogram import F
 from aiogram.filters import CommandStart
-from aiogram.types import (
-    BotCommand,
-    InlineQueryResultArticle,
-    InputTextMessageContent,
-    Message,
-)
-from aiogram.utils.formatting import ExpandableBlockQuote
+from aiogram.types import BotCommand, InlineQueryResultArticle, InputTextMessageContent, Message
 
 from src.core import bot, dp, dialog_memory
-from src.llm import UserInfo, ask_llm, get_preset
+from src.llm import UserInfo, ask_llm, get_preset, get_presets
 
 logger = logging.getLogger(__name__)
 
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer(
-        "Привет! Я - момащка шио. Отправь мне сообщение, или вызови через @ в любом чате."
+    await answer_gquery(
+        message,
+        "Привет! Я - момащка шио. Отправь мне сообщение, или вызови через @ в любом чате.",
     )
     await bot.set_my_commands(
         [BotCommand(command="start", description="Запустить бота")]
@@ -119,43 +114,53 @@ async def process_and_reply(message: Message):
         logger.warning("Пустой ответ от LLM, пропускаю отправку")
         return
 
-    if getattr(message, "guest_query_id", None):
-        await answer_gquery(message, answer)
-    else:
-        thinking = await message.answer("щя")
-        content = ExpandableBlockQuote(answer)
-        await thinking.edit_text(**content.as_kwargs())
+    await answer_gquery(message, answer)
 
 
 async def answer_gquery(message: Message, text: str):
-    result_id = hashlib.md5(f"g_{message.guest_query_id}".encode()).hexdigest()
-    result = InlineQueryResultArticle(
-        id=result_id,
-        title="Ответ",
-        input_message_content=InputTextMessageContent(message_text=text),
-    )
-    await message.answer_guest_query(result=result)
+    if getattr(message, "guest_query_id", None):
+        result_id = hashlib.md5(f"g_{message.guest_query_id}".encode()).hexdigest()
+        result = InlineQueryResultArticle(
+            id=result_id,
+            title="Ответ",
+            input_message_content=InputTextMessageContent(message_text=text),
+        )
+        await message.answer_guest_query(result=result)
+    else:
+        await message.answer(text)
+
+
+async def _handle_command(message: Message, text: str) -> None:
+    uid = message.chat.id
+    args = text.split()
+    cmd = args.pop(0)[1:].split("@")[0]
+
+    match cmd:
+        case "clear":
+            dialog_memory.clear(uid)
+            await answer_gquery(message, "Контекст диалога очищен.")
+        case "prompt":
+            dialog_memory.reset_with_prompt(uid, " ".join(args))
+            await answer_gquery(message, "Переписка очищена, системный промпт установлен.")
+        case "preset":
+            if not args:
+                available = ", ".join(get_presets())
+                await answer_gquery(
+                    message,
+                    f"Доступные пресеты: {available}.\nИспользование: /preset <имя>",
+                )
+                return
+            dialog_memory.reset_with_prompt(uid, get_preset(args[0]))
+            await answer_gquery(message, f"Переписка очищена, пресет {args[0]} применён.")
+        case _:
+            await answer_gquery(message, "пошел нахуй")
 
 
 @dp.guest_message()
 async def handle_guest(message: Message):
     text = str(message.text)
-    uid = message.guest_bot_caller_user.id if message.guest_bot_caller_user else 0
-    is_cmd = text.startswith("/")
-
-    if is_cmd:
-        args = text.split(" ")
-        cmd = args.pop(0)[1:].split("@")[0]
-
-        match cmd:
-            case "clear":
-                dialog_memory.clear(uid)
-            case "prompt":
-                dialog_memory.set_system_prompt(uid, " ".join(args))
-            case "preset":
-                dialog_memory.set_system_prompt(uid, get_preset(args[0]))
-            case _:
-                await answer_gquery(message, "пошел нахуй")
+    if text.startswith("/"):
+        await _handle_command(message, text)
     else:
         await process_and_reply(message)
 
@@ -171,7 +176,11 @@ async def handle_normal_message(message: Message):
     bot_tag = f"@{bot_info.username.lower()}"
 
     if message.chat.type == "private":
-        await process_and_reply(message)
+        raw = message.text or message.caption or ""
+        if raw.startswith("/"):
+            await _handle_command(message, raw)
+        else:
+            await process_and_reply(message)
         return
 
     raw_text = (message.text or message.caption or "").lower()
