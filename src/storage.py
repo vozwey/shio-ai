@@ -14,33 +14,36 @@ class Message:
 class DialogMemory:
     def __init__(self, context_size: int = 20):
         self.context_size = context_size
-        self._store: dict[int, list[Message]] = {}
-        self._system_prompts: dict[int, str] = {}
+        self._store: list[Message] = []
 
     def add(self, user_id: int, role: str, content: str) -> None:
-        msgs = self._store.setdefault(user_id, [])
-        msgs.append(
+        self._store.append(
             Message(role=role, content=content, created_at=datetime.now(timezone.utc))
         )
-        del msgs[: -self.context_size]
+        self._trim()
 
-    def get_context(self, user_id: int) -> list[Message]:
-        return list(self._store.get(user_id, []))
+    def _trim(self) -> None:
+        while len(self._store) > self.context_size:
+            for i, m in enumerate(self._store):
+                if m.role == "system":
+                    del self._store[i]
+                    break
+            else:
+                del self._store[0]
 
-    def all_messages(self) -> list[Message]:
-        out: list[Message] = []
-        for msgs in self._store.values():
-            out.extend(msgs)
-        return out
-
-    def clear(self, id: int):
-        self._store.setdefault(id, []).clear()
-
-    def reset_with_prompt(self, user_id: int, prompt: str) -> None:
-        self._store.setdefault(user_id, []).clear()
-        self._store[user_id].append(
+    def add_system_prompt(self, prompt: str) -> None:
+        self._store.append(
             Message(role="system", content=prompt, created_at=datetime.now(timezone.utc))
         )
+
+    def get_context(self, user_id: int) -> list[Message]:
+        return list(self._store)
+
+    def all_messages(self) -> list[Message]:
+        return list(self._store)
+
+    def clear(self, id: int) -> None:
+        self._store.clear()
 
 
 @dataclass

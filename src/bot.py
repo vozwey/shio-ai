@@ -89,6 +89,9 @@ async def process_and_reply(message: Message):
     if not prompt_text:
         return
 
+    if not dialog_memory.get_context(message.from_user.id):
+        dialog_memory.add_system_prompt(get_preset("default"))
+
     try:
         image_urls = await _collect_image_urls(message)
     except Exception as e:
@@ -139,19 +142,16 @@ async def _handle_command(message: Message, text: str) -> None:
         case "clear":
             dialog_memory.clear(uid)
             await answer_gquery(message, "Контекст диалога очищен.")
-        case "prompt":
-            dialog_memory.reset_with_prompt(uid, " ".join(args))
-            await answer_gquery(message, "Переписка очищена, системный промпт установлен.")
-        case "preset":
+        case "skill":
             if not args:
                 available = ", ".join(get_presets())
                 await answer_gquery(
                     message,
-                    f"Доступные пресеты: {available}.\nИспользование: /preset <имя>",
+                    f"Доступные скиллы: {available}.\nИспользование: /skill <имя>",
                 )
                 return
-            dialog_memory.reset_with_prompt(uid, get_preset(args[0]))
-            await answer_gquery(message, f"Переписка очищена, пресет {args[0]} применён.")
+            dialog_memory.add_system_prompt(get_preset(args[0]))
+            await answer_gquery(message, f"Скилл {args[0]} применён.")
         case _:
             await answer_gquery(message, "пошел нахуй")
 

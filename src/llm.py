@@ -80,14 +80,14 @@ def build_messages(
     image_urls: list[str] | None = None,
 ) -> list[dict]:
     history = dialog_memory.get_context(user_id)
-    if history and history[0].role == "system":
-        system_content = history[0].content
-        messages = [{"role": "system", "content": system_content + _who_block(user_info)}]
-        messages.extend({"role": m.role, "content": m.content} for m in history[1:])
+    system_msgs = [m for m in history if m.role == "system"]
+    non_system = [m for m in history if m.role != "system"]
+    if system_msgs:
+        system_content = system_msgs[-1].content
     else:
         system_content = get_preset("default")
-        messages = [{"role": "system", "content": system_content + _who_block(user_info)}]
-        messages.extend({"role": m.role, "content": m.content} for m in history)
+    messages = [{"role": "system", "content": system_content + _who_block(user_info)}]
+    messages.extend({"role": m.role, "content": m.content} for m in non_system)
     if image_urls:
         content: list[dict] = [{"type": "text", "text": new_text}]
         content.extend(
