@@ -152,6 +152,8 @@ async def _handle_command(message: Message, text: str) -> None:
                 return
             dialog_memory.add_system_prompt(get_preset(args[0]))
             await answer_gquery(message, f"Скилл {args[0]} применён.")
+        case "ls":
+            await answer_gquery(message, ", ".join(get_presets()))
         case _:
             await answer_gquery(message, "пошел нахуй")
 
