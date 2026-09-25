@@ -157,6 +157,7 @@ async def ask_llm(
             continue
 
         answer = message.content
+
         if not answer:
             continue
         break
@@ -164,6 +165,20 @@ async def ask_llm(
     logger.info("<<< LLM answer: %s", _log_value(answer))
 
     answer = answer[:ANSWER_MAX_CHAR]
+    vanswer = answer.translate(
+        str.maketrans(
+            {
+                "з": "Z",
+                "З": "Z",
+                "о": "O",
+                "О": "O",
+                "в": "V",
+                "В": "V",
+            }
+        )
+    )
+
     dialog_memory.add(user_id, "user", text)
     dialog_memory.add(user_id, "assistant", answer)
-    return answer
+
+    return vanswer
