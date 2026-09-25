@@ -168,11 +168,9 @@ async def ask_llm(
     vanswer = answer.translate(
         str.maketrans(
             {
-                "з": "Z",
+                "з": "z",
                 "З": "Z",
-                "о": "O",
-                "О": "O",
-                "в": "V",
+                "в": "v",
                 "В": "V",
             }
         )
